@@ -114,6 +114,14 @@ class StreamReader:
         event.set_result(None)
         self._pending = None
 
+    def set_exception(self, exception):
+        assert isinstance(exception, Exception)
+
+        self._exception = exception
+
+        if self._pending is not None and not self._pending.done():
+            self._pending.set_exception(exception)
+
     @coroutine
     def read(self, count):
         assert isinstance(count, int)
@@ -182,6 +190,14 @@ class StreamWriter:
 
         if self._pending is not None and not self._pending.done():
             self._pending.set_result(None)
+
+    def set_exception(self, exception):
+        assert isinstance(exception, Exception)
+
+        self._exception = exception
+
+        if self._pending is not None and not self._pending.done():
+            self._pending.set_exception(exception)
 
     def can_write_eof(self):
         return self._transport.can_write_eof()
@@ -256,22 +272,12 @@ class StreamingProtocol(asyncio.Protocol):
             self.reader.feed_eof()
 
             exception = ConnectionResetError("connection lost")
-
-            self.writer._exception = exception
-
-            if self.writer._pending is not None and not self.writer._pending.done():
-                self.writer._pending.set_exception(exception)
+            self.writer.set_exception(exception)
 
             return
 
-        self.reader._exception = exception
-        self.writer._exception = exception
-
-        if self.reader._pending is not None and not self.reader._pending.done():
-            self.reader._pending.set_exception(exception)
-
-        if self.writer._pending is not None and not self.writer._pending.done():
-            self.writer._pending.set_exception(exception)
+        self.reader.set_exception(exception)
+        self.writer.set_exception(exception)
 
     def pause_writing(self):
         self.writer._pause()
