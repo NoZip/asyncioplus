@@ -21,10 +21,6 @@ def start_server(connection_callback, host = None, port = None, loop = None):
     if loop is None:
         loop = asyncio.get_event_loop()
 
-    def factory():
-        protocol = StreamingProtocol(connection_callback, loop = loop)
-        return protocol
-
     server = yield from loop.create_server(
         lambda: StreamingProtocol(connection_callback, loop = loop),
         host, port
