@@ -265,7 +265,7 @@ class StreamingProtocol(asyncio.Protocol):
 
     def connection_lost(self, exception):
         if exception is None:
-            self.reader.feed_eof()
+            self.reader._feed_eof()
 
             exception = ConnectionResetError("connection lost")
             self.writer.set_exception(exception)
