@@ -45,14 +45,15 @@ class StreamReader:
         self._exception = None
 
     @coroutine
-    def _wait(self, parameter):
+    def _wait(self, parameter, timeout = None):
         if self._pending is not None and not self._pending.done():
             raise RuntimeError("another read call already pending")
 
         event = asyncio.Future(loop = self._loop)
         self._pending = (parameter, event)
+
         try:
-            yield from event
+            yield from asyncio.wait_for(event, timeout, loop = self._loop)
         finally:
             self._pending = None
 
@@ -119,7 +120,7 @@ class StreamReader:
             self._pending.set_exception(exception)
 
     @coroutine
-    def read(self, count):
+    def read(self, count, timeout = None):
         assert isinstance(count, int)
         assert count > 0
 
@@ -130,7 +131,7 @@ class StreamReader:
             raise ValueError("trying to read more bytes than buffer limit")
 
         if not self._eof and (self._pending or len(self._buffer) < count):
-            yield from self._wait(count)
+            yield from self._wait(count, timeout)
 
         data = bytes(self._buffer[:count])
         del self._buffer[:count]
@@ -140,7 +141,7 @@ class StreamReader:
         return data
 
     @coroutine
-    def read_until(self, delimiter = b"\n"):
+    def read_until(self, delimiter = b"\n", timeout = None):
         assert(isinstance(delimiter, bytes))
         assert(delimiter)
 
@@ -148,7 +149,7 @@ class StreamReader:
             raise self._exception
 
         if not self._eof and (self._pending or delimiter not in self._buffer):
-            yield from self._wait(delimiter)
+            yield from self._wait(delimiter, timeout)
 
         index = self._buffer.find(delimiter)
 
@@ -217,7 +218,7 @@ class StreamWriter:
         self._transport.close()
 
     @coroutine
-    def drain(self):
+    def drain(self, timeout = None):
         if not self._paused:
             return
 
@@ -227,10 +228,11 @@ class StreamWriter:
         if self._pending is not None and not self._pending.done():
             raise RuntimeError("another drain call pending")
 
-        self._pending = asyncio.Future(loop = self._loop)
+        event = asyncio.Future(loop = self._loop)
+        self._pending = event
 
         try:
-            yield from self._pending
+            yield from asyncio.wait_for(event, timeout, loop = self._loop)
         finally:
             self._pending = None
 
