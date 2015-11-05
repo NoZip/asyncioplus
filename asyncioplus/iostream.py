@@ -122,7 +122,10 @@ class StreamReader:
     @coroutine
     def read(self, count, timeout = None):
         assert isinstance(count, int)
-        assert count > 0
+        assert count >= 0
+
+        if count == 0:
+            return b""
 
         if self._exception is not None:
             raise self._exception
