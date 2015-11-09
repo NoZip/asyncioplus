@@ -64,9 +64,9 @@ class StreamReader:
             except NotImplementedError:
                 raise RuntimeError("transport cannot be paused")
 
-            # pausing with read_until call pending 
-            if self._pending and isinstance(self._pending[0], bytes):
-                error = BufferError("buffer limit reached during read_until call")
+            # pausing with read call pending 
+            if not self._pending.done():
+                error = BufferError("buffer limit reached during read call")
                 self._pending[1].set_exception(error)
 
             self._paused = True
