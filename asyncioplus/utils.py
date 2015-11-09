@@ -10,28 +10,28 @@ if not PYTHON_3_5:
         pass
 
 class BlockReaderIterator:
-    def __init__(self, reader, size = None, block_size = DEFAULT_BUFFER_SIZE):
+    def __init__(self, reader, byte_count = None, block_size = DEFAULT_BUFFER_SIZE):
         self._reader = reader
-        self._size = size
+        self.byte_count = byte_count
         self._block_size = block_size
 
-    @coroutine
-    def __aiter__(self):
-        if self._size:
-            self._block_count, self._last_block_size = divmod(self._size, self._block_size)
+        if self.byte_count:
+            self._block_count, self._last_block_size = divmod(self.byte_count, self._block_size)
 
         self._block_index = 0
 
+    @coroutine
+    def __aiter__(self):
         return self
 
     @coroutine
     def __anext__(self):
-        if self._size and self._block_index > self._block_count:
+        if self.byte_count and self._block_index > self._block_count:
             raise StopAsyncIteration
 
         block_size = self._block_size
 
-        if self._size and self._block_index == self._block_count:
+        if self.byte_count and self._block_index == self._block_count:
             if self._last_block_size == 0:
                 raise StopAsyncIteration
 

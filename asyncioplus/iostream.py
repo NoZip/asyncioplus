@@ -169,6 +169,10 @@ class StreamReader:
 
         return data
 
+    def read_blocks(self, byte_count = None):
+        block_reader = BlockReaderIterator(self, byte_count = byte_count)
+        return block_reader
+
 
 class StreamWriter:
     def __init__(self, transport, loop = None):

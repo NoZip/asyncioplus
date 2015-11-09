@@ -4,9 +4,12 @@ import asyncio
 from io import DEFAULT_BUFFER_SIZE, BytesIO
 from asyncio import coroutine
 
+from .utils import *
+
 class FileReader:
     def __init__(self, file_stream, loop = None):
         self._file_stream = file_stream
+        self._file_size = os.stat(file_stream.name).st_size
         self._block_size = os.stat(file_stream.name).st_blksize or DEFAULT_BUFFER_SIZE
         self._loop = loop or asyncio.get_event_loop()
 
@@ -56,6 +59,15 @@ class FileReader:
                 return bytes(data[:index])
 
             yield from asyncio.sleep(0)
+
+    def read_blocks(self, byte_count = None):
+        block_reader = BlockReaderIterator(
+            self,
+            byte_count = byte_count or self._file_size,
+            block_size = self._block_size
+        )
+
+        return block_reader
 
 
 class FileWriter:
