@@ -6,13 +6,15 @@ from asyncio import coroutine
 
 from .utils import *
 
-class FileReader:
+class FileBase:
     def __init__(self, file_stream, loop = None):
         self._file_stream = file_stream
         self._file_size = os.stat(file_stream.name).st_size
         self._block_size = os.stat(file_stream.name).st_blksize or DEFAULT_BUFFER_SIZE
         self._loop = loop or asyncio.get_event_loop()
 
+
+class FileReader(FileBase):
     @coroutine
     def read(self, count):
         assert not self._file_stream.closed
@@ -70,11 +72,9 @@ class FileReader:
         return block_reader
 
 
-class FileWriter:
+class FileWriter(FileBase):
     def __init__(self, file_stream, loop = None):
-        self._file_stream = file_stream
-        self._block_size = os.stat(file_stream.name).st_blksize or DEFAULT_BUFFER_SIZE
-        self._loop = loop or asyncio.get_event_loop()
+        super().__init__(file_stream, loop)
 
         self._listening = True
         self._listen_task = self._loop.create_task(self._listen())
@@ -93,20 +93,32 @@ class FileWriter:
 
             yield from asyncio.sleep(0.5)
 
+    @coroutine
+    def _close(self):
         while self._pending:
             data = self._pending.pop(0)
             self._file_stream.write(data)
-            yield from asyncio.sleep(0)
 
-    @coroutine
-    def _close(self):
-        yield from self._listen_task
+            if self._loop.is_running():
+                yield from sleep(0)
+
         self._file_stream.close()
 
     def close(self):
         if self._listening:
             self._listening = False
-            self._loop.create_task(self._close())
+            self._listen_task.cancel()
+
+            if self._loop.is_running():
+                self._loop.create_task(self._close())
+            else:
+                self._listen_task.cancel()
+
+                while self._pending:
+                    data = self._pending.pop(0)
+                    self._file_stream.write(data)
+
+                self._file_stream.close()
 
     def write(self, data):
         assert self._listening
@@ -134,3 +146,22 @@ class FileWriter:
 
         while self._pending:
             yield from asyncio.sleep(0.1)
+
+
+class File(FileReader, FileWriter):
+    @staticmethod
+    def open(filename, mode = "w+b"):
+        loop = asyncio.get_event_loop()
+
+        if "b" not in mode:
+            mode += "b"
+
+        file = open(filename, mode)
+
+        if "+" in mode:
+            return File(file, loop = loop)
+        elif "r" in mode:
+            return FileReader(file, loop = loop)
+        elif "w" in mode:
+            return FileWriter(file, loop = loop)
+
