@@ -3,9 +3,7 @@ import sys
 from io import DEFAULT_BUFFER_SIZE
 from asyncio import coroutine
 
-PYTHON_3_5 = sys.version_info >= (3, 5)
-
-if not PYTHON_3_5:
+if "StopAsyncIteration" not in dir(__builtins__):
     class StopAsyncIteration(Exception):
         pass
 
