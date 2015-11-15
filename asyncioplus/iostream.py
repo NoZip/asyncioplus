@@ -31,21 +31,24 @@ def start_server(connection_callback, host = None, port = None, loop = None):
 class StreamReader:
     def __init__(self, transport, limit = DEFAULT_LIMIT, loop = None):
         assert transport
+        assert limit
 
-        self._transport = transport
         self._loop = loop or asyncio.get_event_loop() 
-
+        self._transport = transport
         self._buffer = bytearray()
         self._eof = False
         self._pending = None
-
         self._limit = limit
         self._paused = False
-
         self._exception = None
 
+    @property
+    def at_eof(self):
+        return (self._eof and not self._buffer)
+    
+
     @coroutine
-    def _wait(self, parameter, timeout = None):
+    def _wait(self, parameter):
         if self._pending is not None and not self._pending.done():
             raise RuntimeError("another read call already pending")
 
@@ -53,7 +56,7 @@ class StreamReader:
         self._pending = (parameter, event)
 
         try:
-            yield from asyncio.wait_for(event, timeout, loop = self._loop)
+            yield from event
         finally:
             self._pending = None
 
@@ -80,13 +83,11 @@ class StreamReader:
 
             self._paused = False
 
-    def _feed(self, chunk):
-        assert isinstance(chunk, bytes)
-        assert chunk
-
+    def _feed(self, data):
+        assert isinstance(data, bytes)
         assert not self._eof
 
-        self._buffer.extend(chunk)
+        self._buffer.extend(data)
         
         # test pending read calls
         if self._pending:
@@ -99,7 +100,7 @@ class StreamReader:
 
             # read_until call
             elif isinstance(parameter, bytes):
-                search_length = len(chunk) - len(parameter) - 1
+                search_length = len(data) - len(parameter) - 1
                 if parameter in self._buffer[-search_length:]:
                     event.set_result(None)
 
@@ -125,7 +126,7 @@ class StreamReader:
             self._pending.set_exception(exception)
 
     @coroutine
-    def read(self, count, timeout = None):
+    def read(self, count):
         assert isinstance(count, int)
         assert count >= 0
 
@@ -138,8 +139,8 @@ class StreamReader:
         if count > self._limit:
             raise ValueError("trying to read more bytes than buffer limit")
 
-        if not self._eof and (self._pending or len(self._buffer) < count):
-            yield from self._wait(count, timeout)
+        if not self._eof and len(self._buffer) < count:
+            yield from self._wait(count)
 
         data = bytes(self._buffer[:count])
         del self._buffer[:count]
@@ -149,15 +150,14 @@ class StreamReader:
         return data
 
     @coroutine
-    def read_until(self, delimiter = b"\n", timeout = None):
-        assert(isinstance(delimiter, bytes))
-        assert(delimiter)
+    def read_until(self, delimiter = b"\n"):
+        assert isinstance(delimiter, bytes)
 
         if self._exception is not None:
             raise self._exception
 
-        if not self._eof and (self._pending or delimiter not in self._buffer):
-            yield from self._wait(delimiter, timeout)
+        if not self._eof and delimiter not in self._buffer:
+            yield from self._wait(delimiter)
 
         index = self._buffer.find(delimiter)
 
@@ -174,21 +174,15 @@ class StreamReader:
 
         return data
 
-    def read_blocks(self, byte_count = None):
-        block_reader = BlockReaderIterator(self, byte_count = byte_count)
-        return block_reader
-
 
 class StreamWriter:
     def __init__(self, transport, loop = None):
         assert transport
 
-        self._transport = transport
         self._loop = loop or asyncio.get_event_loop()
-
-        self._paused = False
+        self._transport = transport
         self._pending = None
-
+        self._paused = False
         self._exception = None
 
     def _pause(self):
