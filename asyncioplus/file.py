@@ -1,24 +1,23 @@
-import os
 import asyncio
+import io
+import os
 
-from io import DEFAULT_BUFFER_SIZE, BytesIO
 from asyncio import coroutine
 
-from .utils import *
-
 class FileBase:
-    def __init__(self, file_stream, loop = None):
-        self._file_stream = file_stream
-        self._file_size = os.stat(file_stream.name).st_size
-        self._block_size = os.stat(file_stream.name).st_blksize or DEFAULT_BUFFER_SIZE
+    def __init__(self, file_stream, loop=None):
+        file_stats = os.stat(file_stream.name)
+
         self._loop = loop or asyncio.get_event_loop()
+        self._file_stream = file_stream
+        self._file_size = file_stats.st_size
+        self._block_size = file_stats.st_blksize or io.DEFAULT_BUFFER_SIZE
 
 
 class FileReader(FileBase):
     @coroutine
     def read(self, count):
         assert not self._file_stream.closed
-        assert isinstance(count, int)
         assert count >= 0
 
         if count == 0:
@@ -51,29 +50,20 @@ class FileReader(FileBase):
 
             data.extend(block)
 
-            search_length = search_length = len(chunk) - len(delimiter) - 1
-            index = data.find(delimiter, start = -search_length)
+            search_length = search_length = len(block) - len(delimiter) - 1
+            index = data.find(delimiter, start=-search_length)
 
             if index >= 0:
                 offset = len(data) - index - len(delimiter)
-                self._file_stream.seek(-offset, SEEK_CUR)
+                self._file_stream.seek(-offset, io.SEEK_CUR)
 
                 return bytes(data[:index])
 
             yield from asyncio.sleep(0)
 
-    def read_blocks(self, byte_count = None):
-        block_reader = BlockReaderIterator(
-            self,
-            byte_count = byte_count or self._file_size,
-            block_size = self._block_size
-        )
-
-        return block_reader
-
 
 class FileWriter(FileBase):
-    def __init__(self, file_stream, loop = None):
+    def __init__(self, file_stream, loop=None):
         super().__init__(file_stream, loop)
 
         self._listening = True
@@ -100,7 +90,7 @@ class FileWriter(FileBase):
             self._file_stream.write(data)
 
             if self._loop.is_running():
-                yield from sleep(0)
+                yield from asyncio.sleep(0)
 
         self._file_stream.close()
 
@@ -128,7 +118,7 @@ class FileWriter(FileBase):
         if data == b"":
             return
 
-        data_stream = BytesIO(data)
+        data_stream = io.BytesIO(data)
         block_count, last_block_size = divmod(len(data), self._block_size)
 
         for block_index in range(block_count):
@@ -150,7 +140,7 @@ class FileWriter(FileBase):
 
 class File(FileReader, FileWriter):
     @staticmethod
-    def open(filename, mode = "w+b"):
+    def open(filename, mode="w+b"):
         loop = asyncio.get_event_loop()
 
         if "b" not in mode:
@@ -159,9 +149,8 @@ class File(FileReader, FileWriter):
         file = open(filename, mode)
 
         if "+" in mode:
-            return File(file, loop = loop)
+            return File(file, loop=loop)
         elif "r" in mode:
-            return FileReader(file, loop = loop)
+            return FileReader(file, loop=loop)
         elif "w" in mode:
-            return FileWriter(file, loop = loop)
-
+            return FileWriter(file, loop=loop)
