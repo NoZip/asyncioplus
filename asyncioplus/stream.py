@@ -52,9 +52,6 @@ def start_server(
 
 class StreamReader:
     def __init__(self, transport, limit=None, loop=None):
-        assert transport
-        assert limit
-
         self._loop = loop or asyncio.get_event_loop() 
         self._transport = transport
         self._buffer = bytearray()
