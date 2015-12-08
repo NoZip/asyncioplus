@@ -51,6 +51,7 @@ def start_server(
     return server
 
 class StreamReader:
+
     def __init__(self, transport, limit=None, loop=None):
         self._loop = loop or asyncio.get_event_loop() 
         self._transport = transport
@@ -63,12 +64,14 @@ class StreamReader:
 
     @property
     def at_eof(self):
-        return self._eof and not self._buffer
+        return (self._eof and not self._buffer)
 
     @coroutine
     def _wait(self, parameter):
-        if self._pending is not None and not self._pending[1].done():
-            raise RuntimeError("another read call already pending")
+        if self._pending is not None:
+            parameter, event = self._pending
+            if not event.done():
+                raise RuntimeError("another read call already pending")
 
         event = asyncio.Future(loop=self._loop)
         self._pending = (parameter, event)
@@ -106,8 +109,12 @@ class StreamReader:
 
         self._exception = exception
 
-        if self._pending is not None and not self._pending[1].done():
-            self._pending[1].set_exception(exception)
+        # send exception to pending read call, if any
+        pending = self._pending
+        if pending is not None:
+            parameter, event = pending
+            if not event.done():
+                event.set_exception(exception)
 
     def feed(self, data):
         assert isinstance(data, bytes)
@@ -124,16 +131,12 @@ class StreamReader:
                 if isinstance(parameter, int):
                     if parameter <= len(self._buffer):
                         event.set_result(None)
-                        self._pending = None
 
                 # read_until call
                 elif isinstance(parameter, bytes):
                     search_length = len(data) - len(parameter) - 1
                     if parameter in self._buffer[-search_length:]:
                         event.set_result(None)
-                        self._pending = None
-            else:
-                self._pending = None
 
         self._maybe_pause()
 
@@ -209,21 +212,17 @@ class StreamWriter:
         self._transport = transport
         self._pending = None
         self._paused = False
-        self._exception = None
+
+    def is_closing(self):
+        return self._transport._closing
 
     def get_extra_info(self, name, default=None):
+        assert not self.is_closing()
         return self._transport.get_extra_info(name, default)
 
     def can_write_eof(self):
+        assert not self.is_closing()
         return self._transport.can_write_eof()
-
-    def set_exception(self, exception):
-        assert isinstance(exception, Exception)
-
-        self._exception = exception
-
-        if self._pending is not None and not self._pending.done():
-            self._pending.set_exception(exception)
 
     def pause(self):
         self._paused = True
@@ -231,34 +230,36 @@ class StreamWriter:
     def resume(self):
         self._paused = False
 
-        if self._pending is not None and not self._pending.done():
-            self._pending.set_result(None)
+        pending = self._pending
+        if self._pending is not None:
+            self._pending = None
+            if not pending.done():
+                pending.set_result(None)
 
     def write(self, data):
-        if self._exception is not None:
-            raise self._exception
-
+        assert not self.is_closing()
         self._transport.write(data)
 
     def write_eof(self):
-        if self._exception is not None:
-            raise self._exception
-
+        assert not self.is_closing()
         self._transport.write_eof()
 
     def close(self):
+        assert not self.is_closing()
         self._transport.close()
 
     @coroutine
     def drain(self):
+        assert not self.is_closing()
+
         if not self._paused:
             return
 
-        if self._exception is not None:
-            raise self._exception
-
         if self._pending is not None and not self._pending.done():
             raise RuntimeError("another drain call pending")
+
+        if self._transport is not None and self._transport._closing:
+            yield
 
         event = asyncio.Future(loop=self._loop)
         self._pending = event
@@ -294,18 +295,13 @@ class StreamingProtocol(asyncio.Protocol):
 
     def eof_received(self):
         self.reader.feed_eof()
-        return True
+        return None
 
     def connection_lost(self, exception):
         if exception is None:
             self.reader.feed_eof()
-
-            exception = ConnectionResetError("connection lost")
-            self.writer.set_exception(exception)
-
         else:
             self.reader.set_exception(exception)
-            self.writer.set_exception(exception)
 
     def pause_writing(self):
         self.writer.pause()
