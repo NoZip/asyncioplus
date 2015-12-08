@@ -119,16 +119,21 @@ class StreamReader:
         if self._pending:
             parameter, event = self._pending
 
-            # read call
-            if isinstance(parameter, int):
-                if parameter <= len(self._buffer):
-                    event.set_result(None)
+            if not event.done():
+                # read call
+                if isinstance(parameter, int):
+                    if parameter <= len(self._buffer):
+                        event.set_result(None)
+                        self._pending = None
 
-            # read_until call
-            elif isinstance(parameter, bytes):
-                search_length = len(data) - len(parameter) - 1
-                if parameter in self._buffer[-search_length:]:
-                    event.set_result(None)
+                # read_until call
+                elif isinstance(parameter, bytes):
+                    search_length = len(data) - len(parameter) - 1
+                    if parameter in self._buffer[-search_length:]:
+                        event.set_result(None)
+                        self._pending = None
+            else:
+                self._pending = None
 
         self._maybe_pause()
 
@@ -140,7 +145,10 @@ class StreamReader:
 
         # release pending read call
         parameter, event = self._pending
-        event.set_result(None)
+
+        if not event.done():
+            event.set_result(None)
+
         self._pending = None
 
     @coroutine
